@@ -1,8 +1,12 @@
 #include "stm32f1xx.h"
 #include "gpio.h"
-#include "efekt.h"
+#include "borsuk.h"
 #include "bb.h"
 #include <stdlib.h>
+#include <sys/types.h>
+
+static const int PWM_RESOLUTION = 255;
+static const int PWM_MIDLE_VAL = 127;
 
 void Error_Handler(void);
 void configureTIM1_PWMMode();
@@ -12,27 +16,27 @@ static inline void setPWM(unsigned char val) {
 	TIM1->CCR1 = val;
 }
 
-static inline void onPWM() {
-	BB(TIM1->CR1, TIM_CR1_CEN) = 1;
-}
-
-static inline void offPWM() {
-	BB(TIM1->CR1, TIM_CR1_CEN) = 0;
-}
-
 typedef struct Player {
-	volatile int play_ms;
-	int sample_rate;
-	int sample_per_ms;
-	volatile int next_sample;
+	volatile u_int32_t play_ms;
+	u_int32_t sample_rate;
+	u_int32_t sample_per_ms;
+	volatile u_int32_t next_sample;
 	const unsigned char* data;
-	int dataSize;
-	int randomMixPeriod; // 0 disable this feature
+	u_int32_t dataSize;
+	u_int32_t randomMixPeriod; // 0 disable this feature
+	u_int32_t enable;
 	void (*endPlayCallback)();
 } Player;
 Player* createPlayer(const unsigned char* data, int dataSize, int randomMixPeriodMs);
 void playMS(Player* player, int time_ms);
 int isPlaying(Player* player);
+static inline void startPlaing(Player* player) {
+	player->enable = 1;
+}
+static inline void stopPlaing(Player* player) {
+	player->enable = 0;
+	setPWM(PWM_MIDLE_VAL);
+}
 void setEndPlayCallback(Player* player, void (*endPlayCallback)());
 //private
 int getNextSampleIndex(Player* player);
@@ -68,8 +72,8 @@ int main(void) {
 		 * 2. 	jesli aktywny to gram na losowy czas
 		 * 		i cisza losowy czas (0,5-2)
 		 */
-		if ( isInputHigh() && !isPlaying(player) && !delay) {
-			int time_ms = (rand()%4000)+2000; //(2-6s)
+		if ( !isPlaying(player) && !delay && isInputHigh()) {
+			u_int32_t time_ms = (rand()%4000)+2000; //(2-6s)
 			playMS(player, time_ms);
 		}
 	}
@@ -88,7 +92,7 @@ Player* createPlayer(const unsigned char* data, int dataSize, int randomMixPerio
 
 	player->play_ms = 0;
 	player->next_sample = 0;
-	player->sample_rate = 44000000/512;// 85937,5Hz
+	player->sample_rate = 44000000/512;//88k
 	player->sample_per_ms = player->sample_rate/1000;
 	player->data = data;
 	player->dataSize = dataSize;
@@ -96,13 +100,14 @@ Player* createPlayer(const unsigned char* data, int dataSize, int randomMixPerio
 	player->randomMixPeriod = randomMixPeriodMs>=sampleLen ?
 							sampleLen :
 							randomMixPeriodMs;
+	player->enable = 0;
 	player->endPlayCallback = NULL;
 
 	configureTIM1_PWMMode();
 	NVIC_ClearPendingIRQ(TIM1_CC_IRQn);
 	NVIC_EnableIRQ(TIM1_CC_IRQn);
-
-	setPWM(127);
+	BB(TIM1->CR1, TIM_CR1_CEN) = 1;
+	setPWM(PWM_MIDLE_VAL);
 
 	return player;
 }
@@ -111,7 +116,7 @@ void playMS(Player* player, int time_ms) {
 	if (player) {
 		player->play_ms = time_ms;
 		player->next_sample = 0;
-		onPWM();
+		startPlaing(player);
 	}
 }
 
@@ -142,7 +147,7 @@ void handleNextSample(Player* player) {
 		}
 		setPWM(player->data[sample]);
 		if (player->play_ms == 0) {
-			offPWM();
+			stopPlaing(player);
 			player->next_sample = 0;
 			if (player->endPlayCallback)
 				player->endPlayCallback();
@@ -150,10 +155,11 @@ void handleNextSample(Player* player) {
 	}
 }
 
+volatile unsigned int step = 0;
 __attribute__((interrupt)) void TIM1_CC_IRQHandler(void){
 	if (TIM1->SR & TIM_SR_CC1IF) {
 		TIM1->SR = ~TIM_SR_CC1IF;
-		if (player) //TODO change to callback and not disanling pwm, only set to 127
+		if (player && player->enable && !((step++)%2)) // && next sample every 2 IRQ event (4 for 41k rate)
 			handleNextSample(player);
 	}
 }
@@ -169,9 +175,9 @@ void configureTIM1_PWMMode() {
 	// interrupt
 	TIM1->DIER = TIM_DIER_CC1IE;
 
-	TIM1->PSC = 1;
-	TIM1->ARR = 255;
-	TIM1->CCR1 = 127;
+	TIM1->PSC = 0; // 0 - ~172kHz
+	TIM1->ARR = PWM_RESOLUTION;
+	TIM1->CCR1 = PWM_MIDLE_VAL;
 	TIM1->EGR = TIM_EGR_UG;
 	TIM1->CR1 = TIM_CR1_ARPE;
 }
