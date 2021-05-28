@@ -10,14 +10,6 @@
 #include "stm32f1xx.h"
 #include <sys/types.h>
 
-static const int PWM_RESOLUTION = 255;
-static const int PWM_MIDLE_VAL = 127;
-
-void configureTIM1_PWMMode();
-static inline void setPWM(unsigned char val) {
-	TIM1->CCR1 = val;
-}
-
 typedef struct Player {
 	volatile u_int32_t play_ms;
 	u_int32_t sample_rate;
@@ -34,17 +26,5 @@ Player* createPlayer(const unsigned char* data, int dataSize, int randomMixPerio
 void playMS(Player* player, int time_ms);
 int isPlaying(Player* player);
 void setEndPlayCallback(Player* player, void (*endPlayCallback)());
-
-//private
-int getNextSampleIndex(Player* player);
-void handleNextSample(Player* player);
-void randomMix(Player* player);
-static inline void startPlaing(Player* player) {
-	player->enable = 1;
-}
-static inline void stopPlaing(Player* player) {
-	player->enable = 0;
-	setPWM(PWM_MIDLE_VAL);
-}
 
 #endif /* INC_PLAYER_H_ */

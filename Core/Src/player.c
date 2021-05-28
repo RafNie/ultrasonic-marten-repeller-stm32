@@ -11,6 +11,25 @@
 
 Player* player;
 
+
+static const int PWM_RESOLUTION = 255;
+static const int PWM_MIDLE_VAL = 127;
+
+void configureTIM1_PWMMode();
+static inline void setPWM(unsigned char val) {
+	TIM1->CCR1 = val;
+}
+static int getNextSampleIndex(Player* player);
+static void handleNextSample(Player* player);
+static void randomMix(Player* player);
+static inline void startPlaing(Player* player) {
+	player->enable = 1;
+}
+static inline void stopPlaing(Player* player) {
+	player->enable = 0;
+	setPWM(PWM_MIDLE_VAL);
+}
+
 int isPlaying(Player* player) {
 	return player->play_ms;
 }
