@@ -1,7 +1,7 @@
 #include "stm32f1xx.h"
 #include "player.h"
 #include "gpio.h"
-#include "borsuk.h"
+#include "sound.h"
 #include "bb.h"
 #include <stdlib.h>
 #include <sys/types.h>
