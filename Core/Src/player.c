@@ -19,6 +19,8 @@ void configureTIM1_PWMMode();
 static inline void setPWM(unsigned char val) {
 	TIM1->CCR1 = val;
 }
+
+static void fixSampleIndex(Player *player);
 static int getNextSampleIndex(Player* player);
 static void handleNextSample(Player* player);
 static void randomMix(Player* player);
@@ -71,16 +73,21 @@ void setEndPlayCallback(Player* player, void (*endPlayCallback)()) {
 	player->endPlayCallback = endPlayCallback;
 }
 
-int getNextSampleIndex(Player* player) {
-	int sample = player->next_sample++;
+void fixSampleIndex(Player *player) {
 	if (player->next_sample >= player->dataSize)
 		player->next_sample = 0;
+}
+
+int getNextSampleIndex(Player* player) {
+	int sample = player->next_sample++;
+	fixSampleIndex(player);
 	return sample;
 }
 
 void randomMix(Player* player) {
-	int newSamplePosition = (rand()%200) * player->sample_per_ms; // rand sample position in range 200ms
-	player->next_sample = ++newSamplePosition;
+	int newSamplePosition = (rand()%player->randomMixPeriod) * player->sample_per_ms; // draws sample position in range ramdomMixPeriod
+	player->next_sample += newSamplePosition;
+	fixSampleIndex(player);
 }
 
 void handleNextSample(Player* player) {
@@ -89,7 +96,7 @@ void handleNextSample(Player* player) {
 		int milisecondBorder = sample%(player->sample_per_ms);
 		if (milisecondBorder == 0 ) {
 			player->play_ms--;
-			if (player->randomMixPeriod && (player->play_ms)%250 == 0)//rand new sample position every 250ms
+			if (player->randomMixPeriod && (player->play_ms)%(player->randomMixPeriod) == 0)//draws new sample position every ramdomMixPeriod
 				randomMix(player);
 		}
 		setPWM(player->data[sample]);
@@ -103,11 +110,12 @@ void handleNextSample(Player* player) {
 }
 
 void configureTIM1_PWMMode() {
-	RCC->APB2ENR = RCC_APB2ENR_IOPAEN | RCC_APB2ENR_TIM1EN;
-	gpio_pin_cfg(GPIOA, PA8, gpio_mode_alternate_PP_2MHz);
+	RCC->APB2ENR = RCC_APB2ENR_IOPAEN | RCC_APB2ENR_IOPBEN | RCC_APB2ENR_TIM1EN;
+	gpio_pin_cfg(GPIOA, PA8, gpio_mode_alternate_OD_2MHz);
+	gpio_pin_cfg(GPIOB, PB13, gpio_mode_alternate_OD_2MHz);
 
 	TIM1->CCMR1 = TIM_CCMR1_OC1PE | TIM_CCMR1_OC1M_2 | TIM_CCMR1_OC1M_1;
-	TIM1->CCER = TIM_CCER_CC1E;
+	TIM1->CCER = TIM_CCER_CC1E | TIM_CCER_CC1NE;
 	TIM1->BDTR = TIM_BDTR_MOE;
 
 	// interrupt

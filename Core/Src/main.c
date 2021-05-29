@@ -1,7 +1,7 @@
+#include <badger.h>
 #include "stm32f1xx.h"
 #include "player.h"
 #include "gpio.h"
-#include "sound.h"
 #include "bb.h"
 #include <stdlib.h>
 #include <sys/types.h>
@@ -25,7 +25,8 @@ int main(void) {
 	SystemClock_Config();
 	SysTick_Config(44000000/100); //10ms
 
-	player = createPlayer(wave, sizeof(wave)/sizeof(wave[0]), 350);
+	int mixRandomPeriod = 350;
+	player = createPlayer(wave, sizeof(wave)/sizeof(wave[0]), mixRandomPeriod);
 	setEndPlayCallback(player, delayRand2s);
 
 	BB(RCC->APB2ENR, RCC_APB2ENR_IOPBEN) = 1;
@@ -33,7 +34,7 @@ int main(void) {
 
 	while (1) {
 		if ( !isPlaying(player) && !delayNextPlay && isInputHigh()) {
-			u_int32_t time_ms = (rand()%4000)+2000; //(2-6s)
+			u_int32_t time_ms = (rand()%3000)+2000; //(2-5s)
 			playMS(player, time_ms);
 		}
 	}
