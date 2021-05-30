@@ -2,7 +2,7 @@
  * player.c
  *
  *  Created on: 26 maj 2021
- *      Author: rafal
+ *      Author: Rafal Niedzwiedzinski
  */
 #include "player.h"
 #include "bb.h"
@@ -11,63 +11,92 @@
 
 Player* player;
 
-
 static const int PWM_RESOLUTION = 255;
 static const int PWM_MIDLE_VAL = 127;
+static const int TIMxCLK = 44000000;
 
 void configureTIM1_PWMMode();
 static inline void setPWM(unsigned char val) {
 	TIM1->CCR1 = val;
 }
+void configureTIM2(uint32_t sampling_rate);
 
 static void fixSampleIndex(Player *player);
 static int getNextSampleIndex(Player* player);
 static void handleNextSample(Player* player);
 static void randomMix(Player* player);
+static void tryMix(Player *player);
 static inline void startPlaing(Player* player) {
 	player->enable = 1;
 }
 static inline void stopPlaing(Player* player) {
 	player->enable = 0;
+	player->next_sample = 0;
 	setPWM(PWM_MIDLE_VAL);
+	if (player->endPlayCallback)
+		player->endPlayCallback();
 }
 
 int isPlaying(Player* player) {
 	return player->play_ms;
 }
 
-Player* createPlayer(const unsigned char* data, int dataSize, int randomMixPeriodMs) {
-	Player* player = malloc(sizeof(Player));
+Player* createPlayer(const unsigned char* data, int dataSize, int sampeRate) {
 
+	Player* player = malloc(sizeof(Player));
 	player->play_ms = 0;
 	player->next_sample = 0;
-	player->sample_rate = 44000000/512;//88k
+	player->sample_rate = sampeRate;
 	player->sample_per_ms = player->sample_rate/1000;
 	player->data = data;
 	player->dataSize = dataSize;
-	int sampleLen = dataSize/player->sample_per_ms;
-	player->randomMixPeriod = randomMixPeriodMs>=sampleLen ?
-							sampleLen :
-							randomMixPeriodMs;
+	player->randomMixPeriod = 0;
 	player->enable = 0;
 	player->endPlayCallback = NULL;
 
 	configureTIM1_PWMMode();
+	configureTIM2(sampeRate);
 	NVIC_ClearPendingIRQ(TIM1_CC_IRQn);
+	NVIC_ClearPendingIRQ(TIM2_IRQn);
 	NVIC_EnableIRQ(TIM1_CC_IRQn);
-	BB(TIM1->CR1, TIM_CR1_CEN) = 1;
+	NVIC_EnableIRQ(TIM2_IRQn);
+
 	setPWM(PWM_MIDLE_VAL);
 
 	return player;
 }
 
-void playMS(Player* player, int time_ms) {
+void playOnce(Player* player) {
 	if (player) {
-		player->play_ms = time_ms;
+		int timeOfSample = player->dataSize/player->sample_per_ms;
+		player->play_ms = timeOfSample;
 		player->next_sample = 0;
+		player->randomMixPeriod = 0;
 		startPlaing(player);
 	}
 }
+
+void playLoopsOverTime(Player* player, int time_ms) {
+	if (player) {
+		player->play_ms = time_ms;
+		player->next_sample = 0;
+		player->randomMixPeriod = 0;
+		startPlaing(player);
+	}
+}
+
+void playLoopsOverTimeMixRandomly(Player* player, int time_ms, int randomMixPeriodMs) {
+	if (player) {
+		player->play_ms = time_ms;
+		player->next_sample = 0;
+		int timeOfSample = player->dataSize/player->sample_per_ms;
+		player->randomMixPeriod = randomMixPeriodMs>=timeOfSample ?
+								timeOfSample :
+								randomMixPeriodMs;
+		startPlaing(player);
+	}
+}
+
 
 void setEndPlayCallback(Player* player, void (*endPlayCallback)()) {
 	player->endPlayCallback = endPlayCallback;
@@ -90,23 +119,33 @@ void randomMix(Player* player) {
 	fixSampleIndex(player);
 }
 
+void tryMix(Player *player) {
+	if (player->randomMixPeriod
+			&& (player->play_ms) % (player->randomMixPeriod) == 0)
+		randomMix(player);
+}
+
 void handleNextSample(Player* player) {
 	if (player) {
 		int sample = getNextSampleIndex(player);
-		int milisecondBorder = sample%(player->sample_per_ms);
-		if (milisecondBorder == 0 ) {
+		int milisecondFraction = sample%(player->sample_per_ms);
+		if (milisecondFraction == 0 ) {
 			player->play_ms--;
-			if (player->randomMixPeriod && (player->play_ms)%(player->randomMixPeriod) == 0)//draws new sample position every ramdomMixPeriod
-				randomMix(player);
+			tryMix(player);
 		}
 		setPWM(player->data[sample]);
 		if (player->play_ms == 0) {
 			stopPlaing(player);
-			player->next_sample = 0;
-			if (player->endPlayCallback)
-				player->endPlayCallback();
 		}
 	}
+}
+
+void configureTIM2(uint32_t sampling_rate) {
+	BB(RCC->APB1ENR, RCC_APB1ENR_TIM2EN) = 1;
+	TIM2->PSC = 0;
+	TIM2->ARR = TIMxCLK/sampling_rate;
+	TIM2->DIER = TIM_DIER_UIE;
+	TIM2->CR1 = TIM_CR1_CEN;
 }
 
 void configureTIM1_PWMMode() {
@@ -118,22 +157,17 @@ void configureTIM1_PWMMode() {
 	TIM1->CCER = TIM_CCER_CC1E | TIM_CCER_CC1NE;
 	TIM1->BDTR = TIM_BDTR_MOE;
 
-	// interrupt
-	TIM1->DIER = TIM_DIER_CC1IE;
-
-	TIM1->PSC = 0; // 0 - ~172kHz
+	TIM1->PSC = 0;
 	TIM1->ARR = PWM_RESOLUTION;
 	TIM1->CCR1 = PWM_MIDLE_VAL;
 	TIM1->EGR = TIM_EGR_UG;
-	TIM1->CR1 = TIM_CR1_ARPE;
+	TIM1->CR1 = TIM_CR1_ARPE | TIM_CR1_CEN;
 }
 
-volatile unsigned int step = 0;
-__attribute__((interrupt)) void TIM1_CC_IRQHandler(void){
-	if (TIM1->SR & TIM_SR_CC1IF) {
-		TIM1->SR = ~TIM_SR_CC1IF;
-		if (player && player->enable && !((step++)%2)) // && next sample every 2 IRQ event (4 for 41k rate)
+__attribute__((interrupt)) void TIM2_IRQHandler(void){
+	if (TIM2->SR & TIM_SR_UIF) {
+		TIM2->SR = 0;
+		if (player && player->enable)
 			handleNextSample(player);
 	}
 }
-

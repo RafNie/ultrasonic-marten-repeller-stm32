@@ -9,14 +9,14 @@
 void Error_Handler(void);
 void SystemClock_Config(void);
 
-volatile unsigned int delayNextPlay = 0;// 10ms period
+volatile unsigned int delayBeforeNextPlay = 0;// 10ms period
 
 static inline int isInputHigh() {
 	return GPIOB->IDR & GPIO_IDR_IDR0;
 }
 
 void delayRand2s() {
-	delayNextPlay = rand()%200;
+	delayBeforeNextPlay = rand()%200;
 }
 
 extern Player* player;
@@ -25,23 +25,23 @@ int main(void) {
 	SystemClock_Config();
 	SysTick_Config(44000000/100); //10ms
 
-	int mixRandomPeriod = 350;
-	player = createPlayer(wave, sizeof(wave)/sizeof(wave[0]), mixRandomPeriod);
+	player = createPlayer(wave, sizeof(wave)/sizeof(wave[0]), wave_sampling_rate);
 	setEndPlayCallback(player, delayRand2s);
 
 	BB(RCC->APB2ENR, RCC_APB2ENR_IOPBEN) = 1;
 	gpio_pin_cfg(GPIOB, PB0, gpio_mode_input_floating);
 
+	int mixRandomPeriod = 350;
 	while (1) {
-		if ( !isPlaying(player) && !delayNextPlay && isInputHigh()) {
+		if ( !isPlaying(player) && !delayBeforeNextPlay && isInputHigh()) {
 			u_int32_t time_ms = (rand()%3000)+2000; //(2-5s)
-			playMS(player, time_ms);
+			playLoopsOverTimeMixRandomly(player, time_ms, mixRandomPeriod);
 		}
 	}
 }
 
 __attribute__((interrupt)) void SysTick_Handler(void){
-	if (delayNextPlay) delayNextPlay--;
+	if (delayBeforeNextPlay) delayBeforeNextPlay--;
 }
 
 void SystemClock_Config(void)
