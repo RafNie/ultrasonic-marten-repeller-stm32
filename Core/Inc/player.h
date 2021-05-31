@@ -17,7 +17,8 @@ typedef struct {
 	unsigned int enable;
 	volatile unsigned int play_ms;
 	unsigned int sample_rate;
-	unsigned int sample_per_ms;
+	unsigned int samples_per_ms;
+	unsigned int TIM2_CLK;
 	volatile unsigned int next_sample;
 	unsigned int randomMixPeriod; // 0 disable this feature
 	unsigned int dataSize;
@@ -25,7 +26,7 @@ typedef struct {
 	void (*endPlayCallback)();
 } Player;
 
-Player* createPlayer(const unsigned char* data, int dataSize, int sampeRate);
+Player* createPlayer(const unsigned char* data, int dataSize, int sampeRateunsigned, unsigned int TIM2_CLK);
 void playOnce(Player* player);
 void playLoopsOverTime(Player* player, int time_ms);
 void playLoopsOverTimeMixRandomly(Player* player, int time_ms, int randomMixPeriodMs);

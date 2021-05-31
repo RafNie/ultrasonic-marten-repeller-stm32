@@ -13,13 +13,12 @@ Player* player;
 
 static const int PWM_RESOLUTION = 255;
 static const int PWM_MIDLE_VAL = 127;
-static const int TIMxCLK = 44000000;
 
-void configureTIM1_PWMMode();
 static inline void setPWM(unsigned char val) {
 	TIM1->CCR1 = val;
 }
-void configureTIM2(uint32_t sampling_rate);
+static void configureTIM1_PWMMode();
+static void configureTIM2(uint32_t sampling_rate);
 
 static void fixSampleIndex(Player *player);
 static int getNextSampleIndex(Player* player);
@@ -37,38 +36,36 @@ static inline void stopPlaing(Player* player) {
 		player->endPlayCallback();
 }
 
-int isPlaying(Player* player) {
-	return player->play_ms;
-}
-
-Player* createPlayer(const unsigned char* data, int dataSize, int sampeRate) {
+Player* createPlayer(const unsigned char* data, int dataSize, int sampeRate, unsigned int TIM2_CLK) {
 
 	Player* player = malloc(sizeof(Player));
-	player->play_ms = 0;
-	player->next_sample = 0;
-	player->sample_rate = sampeRate;
-	player->sample_per_ms = player->sample_rate/1000;
-	player->data = data;
-	player->dataSize = dataSize;
-	player->randomMixPeriod = 0;
-	player->enable = 0;
-	player->endPlayCallback = NULL;
+	if (player) {
+		player->play_ms = 0;
+		player->next_sample = 0;
+		player->sample_rate = sampeRate;
+		player->samples_per_ms = player->sample_rate/1000;
+		player->TIM2_CLK = TIM2_CLK;
+		player->data = data;
+		player->dataSize = dataSize;
+		player->randomMixPeriod = 0;
+		player->enable = 0;
+		player->endPlayCallback = NULL;
 
-	configureTIM1_PWMMode();
-	configureTIM2(sampeRate);
-	NVIC_ClearPendingIRQ(TIM1_CC_IRQn);
-	NVIC_ClearPendingIRQ(TIM2_IRQn);
-	NVIC_EnableIRQ(TIM1_CC_IRQn);
-	NVIC_EnableIRQ(TIM2_IRQn);
+		configureTIM1_PWMMode();
+		configureTIM2(sampeRate);
+		NVIC_ClearPendingIRQ(TIM1_CC_IRQn);
+		NVIC_ClearPendingIRQ(TIM2_IRQn);
+		NVIC_EnableIRQ(TIM1_CC_IRQn);
+		NVIC_EnableIRQ(TIM2_IRQn);
 
-	setPWM(PWM_MIDLE_VAL);
-
+		setPWM(PWM_MIDLE_VAL);
+	}
 	return player;
 }
 
 void playOnce(Player* player) {
 	if (player) {
-		int timeOfSample = player->dataSize/player->sample_per_ms;
+		int timeOfSample = player->dataSize/player->samples_per_ms;
 		player->play_ms = timeOfSample;
 		player->next_sample = 0;
 		player->randomMixPeriod = 0;
@@ -89,7 +86,7 @@ void playLoopsOverTimeMixRandomly(Player* player, int time_ms, int randomMixPeri
 	if (player) {
 		player->play_ms = time_ms;
 		player->next_sample = 0;
-		int timeOfSample = player->dataSize/player->sample_per_ms;
+		int timeOfSample = player->dataSize/player->samples_per_ms;
 		player->randomMixPeriod = randomMixPeriodMs>=timeOfSample ?
 								timeOfSample :
 								randomMixPeriodMs;
@@ -98,8 +95,16 @@ void playLoopsOverTimeMixRandomly(Player* player, int time_ms, int randomMixPeri
 }
 
 
+int isPlaying(Player* player) {
+	if (player)
+		return player->play_ms;
+	else
+		return 0;
+}
+
 void setEndPlayCallback(Player* player, void (*endPlayCallback)()) {
-	player->endPlayCallback = endPlayCallback;
+	if (player)
+		player->endPlayCallback = endPlayCallback;
 }
 
 void fixSampleIndex(Player *player) {
@@ -114,7 +119,7 @@ int getNextSampleIndex(Player* player) {
 }
 
 void randomMix(Player* player) {
-	int newSamplePosition = (rand()%player->randomMixPeriod) * player->sample_per_ms; // draws sample position in range ramdomMixPeriod
+	int newSamplePosition = (rand()%player->randomMixPeriod) * player->samples_per_ms; // draws sample position in range ramdomMixPeriod
 	player->next_sample += newSamplePosition;
 	fixSampleIndex(player);
 }
@@ -128,7 +133,7 @@ void tryMix(Player *player) {
 void handleNextSample(Player* player) {
 	if (player) {
 		int sample = getNextSampleIndex(player);
-		int milisecondFraction = sample%(player->sample_per_ms);
+		int milisecondFraction = sample%(player->samples_per_ms);
 		if (milisecondFraction == 0 ) {
 			player->play_ms--;
 			tryMix(player);
@@ -143,7 +148,7 @@ void handleNextSample(Player* player) {
 void configureTIM2(uint32_t sampling_rate) {
 	BB(RCC->APB1ENR, RCC_APB1ENR_TIM2EN) = 1;
 	TIM2->PSC = 0;
-	TIM2->ARR = TIMxCLK/sampling_rate;
+	TIM2->ARR = player->TIM2_CLK/sampling_rate;
 	TIM2->DIER = TIM_DIER_UIE;
 	TIM2->CR1 = TIM_CR1_CEN;
 }

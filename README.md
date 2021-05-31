@@ -2,11 +2,12 @@
 
 #### Idea
 
-Device emits sounds of natural marten enemy, at example badger. Rating of samples was extended to 88,2kHz and sound was moved in frequency scale to higher rate, to be less annoying for humans. The sound starts in audible range and reaches ultrasound.
+Device emits sounds of natural marten enemy, at example badger. It would be good to experiment with the sounds of various predators to find sounds that are the best to deter martens. The sampling rate was extended to 88,2kHz and the sound was moved in frequency scale to higher rates, to be less annoying for humans. Wav sample resolution is 8 bits in unsigned format. The sound starts in audible range and reaches ultrasonic.
 
 #### Software 
 
-Main worker is a Player structure with the set of related functions. The Timer 1 is used to generate complementary PWM and the Timer 2 is used for synchronization of the original rate of samples.
+Main worker is a Player structure with the set of related functions. It plays a wave table via complementary PWM outputs. The Timer 1 is used to generate complementary PWM signal and the Timer 2 is used for synchronization of the original rate of samples. PWM frequency is 281,25kHz.  
+Example audio wave are defined in badger.h file.   
 Rest of job is done in main loop.  
 
 Helper macros and declarations for pin manipulating (gpio.h and bb.h) comes from ebook __Poradnik STM32 v1_9.pdf, autor: Szczywronek__.
